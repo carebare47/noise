@@ -37,6 +37,82 @@ noise1(float x, const int repeat, const int base)
 	return lerp(fx, grad1(PERM[i], x), grad1(PERM[ii], x - 1)) * 0.4f;
 }
 
+float
+noise1perm(float x, const int repeat, const int base, unsigned int perm_table[])
+{
+	float fx;
+	int i = (int)floorf(x) % repeat;
+	int ii = (i + 1) % repeat;
+	i = (i & 255) + base;
+	ii = (ii & 255) + base;
+
+	x -= floorf(x);
+	fx = x*x*x * (x * (x * 6 - 15) + 10);
+
+	return lerp(fx, grad1(perm_table[i], x), grad1(perm_table[ii], x - 1)) * 0.4f;
+}
+
+
+static PyObject *
+py_noise1perm(PyObject *self, PyObject *args, PyObject *kwargs)
+{
+	float x;
+	int octaves = 1;
+	float persistence = 0.5f;
+	float lacunarity = 2.0f;
+	int repeat = 1024; // arbitrary
+	int base = 0;
+	PyObject *int_list;
+	int perm_length;
+	unsigned int* perm_table;
+
+
+	static char *kwlist[] = {"x", "perm_table", "octaves", "persistence", "lacunarity", "repeat", "base", NULL};
+
+	if (!PyArg_ParseTupleAndKeywords(args, kwargs, "fO|iffii:noise1perm", kwlist,
+		&x, &int_list, &octaves, &persistence, &lacunarity, &repeat, &base))
+		return NULL;
+
+	// Get list from python and convert to C array of integers
+	perm_length = PyObject_Length(int_list);
+	if (perm_length < 0)
+		return NULL;
+	perm_table = (unsigned int *) malloc(sizeof(unsigned int *) * perm_length);
+	if (perm_table == NULL)
+		return NULL;
+	for (int index = 0; index < perm_length; index++)
+	{
+		PyObject *item;
+		item = PyList_GetItem(int_list, index);
+		if (!PyFloat_Check(item))
+			perm_table[index] = 0.0;
+		perm_table[index] = PyFloat_AsDouble(item);
+	}
+
+
+	if (octaves == 1) {
+		// Single octave, return simple noise
+		return (PyObject *) PyFloat_FromDouble((double) noise1perm(x, repeat, base, perm_table));
+	} else if (octaves > 1) {
+		int i;
+		float freq = 1.0f;
+		float amp = 1.0f;
+		float max = 0.0f;
+		float total = 0.0f;
+
+		for (i = 0; i < octaves; i++) {
+			total += noise1perm(x * freq, (const int)(repeat * freq), base, perm_table) * amp;
+			max += amp;
+			freq *= lacunarity;
+			amp *= persistence;
+		}
+		return (PyObject *) PyFloat_FromDouble((double) (total / max));
+	} else {
+		PyErr_SetString(PyExc_ValueError, "Expected octaves value > 0");
+		return NULL;
+	}
+}
+
 static PyObject *
 py_noise1(PyObject *self, PyObject *args, PyObject *kwargs)
 {
@@ -247,6 +323,9 @@ py_noise3(PyObject *self, PyObject *args, PyObject *kwargs)
 }
 
 static PyMethodDef perlin_functions[] = {
+	{"noise1perm", (PyCFunction) py_noise1perm, METH_VARARGS | METH_KEYWORDS,
+		"noise1perm(x, perm_table[256], octaves=1, persistence=0.5, lacunarity=2.0, repeat=1024, base=0.0)\n\n"
+		"1 dimensional perlin improved noise function (see noise3 for more info)"},
 	{"noise1", (PyCFunction) py_noise1, METH_VARARGS | METH_KEYWORDS, 
 		"noise1(x, octaves=1, persistence=0.5, lacunarity=2.0, repeat=1024, base=0.0)\n\n"
 		"1 dimensional perlin improved noise function (see noise3 for more info)"},
